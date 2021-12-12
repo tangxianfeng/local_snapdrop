@@ -23,6 +23,8 @@ class SnapdropServer {
         this._wss.on('headers', (headers, response) => this._onHeaders(headers, response));
 
         this._rooms = {};
+        // create a local room for private ip
+        this._localroom = {};
 
         console.log('Snapdrop is running on port', port);
     }
@@ -78,14 +80,22 @@ class SnapdropServer {
     }
 
     _joinRoom(peer) {
-        // if room doesn't exist, create it
-        if (!this._rooms[peer.ip]) {
-            this._rooms[peer.ip] = {};
+        var _room = null;
+        if (peer.islocal) {
+            _room = this._localroom;
+            console.log(peer.id, peer.ip, peer.name, 'join local room')
+        }
+        else {
+            // if room doesn't exist, create it
+            if (!this._rooms[peer.ip]) {
+                this._rooms[peer.ip] = {};
+            }
+            _room = this._rooms[peer.ip];
         }
 
         // notify all other peers
-        for (const otherPeerId in this._rooms[peer.ip]) {
-            const otherPeer = this._rooms[peer.ip][otherPeerId];
+        for (const otherPeerId in _room) {
+            const otherPeer = _room[otherPeerId];
             this._send(otherPeer, {
                 type: 'peer-joined',
                 peer: peer.getInfo()
@@ -94,8 +104,8 @@ class SnapdropServer {
 
         // notify peer about the other peers
         const otherPeers = [];
-        for (const otherPeerId in this._rooms[peer.ip]) {
-            otherPeers.push(this._rooms[peer.ip][otherPeerId].getInfo());
+        for (const otherPeerId in _room) {
+            otherPeers.push(_room[otherPeerId].getInfo());
         }
 
         this._send(peer, {
@@ -104,24 +114,34 @@ class SnapdropServer {
         });
 
         // add peer to room
-        this._rooms[peer.ip][peer.id] = peer;
+        _room[peer.id] = peer;
     }
 
     _leaveRoom(peer) {
-        if (!this._rooms[peer.ip] || !this._rooms[peer.ip][peer.id]) return;
-        this._cancelKeepAlive(this._rooms[peer.ip][peer.id]);
+        var _room = null;
+        if (peer.islocal) {
+            _room = this._localroom;
+            console.log(peer.id, peer.ip, peer.name, 'left local room')
+        }
+        else {
+            if (!this._rooms[peer.ip] || !this._rooms[peer.ip][peer.id]) return;
+            _room = this._rooms[peer.ip];
+        }
+        this._cancelKeepAlive(_room[peer.id]);
 
         // delete the peer
-        delete this._rooms[peer.ip][peer.id];
+        delete _room[peer.id];
 
         peer.socket.terminate();
-        //if room is empty, delete the room
-        if (!Object.keys(this._rooms[peer.ip]).length) {
-            delete this._rooms[peer.ip];
+        if (!Object.keys(_room).length) {
+            if (!peer.islocal) {
+                //non local room, if room is empty, delete the room
+                delete this._rooms[peer.ip];
+            }
         } else {
             // notify all other peers
-            for (const otherPeerId in this._rooms[peer.ip]) {
-                const otherPeer = this._rooms[peer.ip][otherPeerId];
+            for (const otherPeerId in _room) {
+                const otherPeer = _room[otherPeerId];
                 this._send(otherPeer, { type: 'peer-left', peerId: peer.id });
             }
         }
@@ -164,7 +184,7 @@ class Peer {
     constructor(socket, request) {
         // set socket
         this.socket = socket;
-
+        this.islocal = false;
 
         // set remote ip
         this._setIP(request);
@@ -189,6 +209,14 @@ class Peer {
         // IPv4 and IPv6 use different values to refer to localhost
         if (this.ip == '::1' || this.ip == '::ffff:127.0.0.1') {
             this.ip = '127.0.0.1';
+        }
+        if ((this.ip >= '10.0.0.0' && this.ip <= '10.255.255.255') ||
+           (this.ip >= '172.16.0.0' && this.ip <= '172.31.255.255') ||
+           (this.ip >= '192.168.0.0' && this.ip <= '192.168.255.255')) {
+               this.islocal = true;
+           }
+        else {
+            this.islocal = false;
         }
     }
 
