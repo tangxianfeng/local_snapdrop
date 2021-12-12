@@ -68,9 +68,18 @@ class SnapdropServer {
         }
 
         // relay message to recipient
-        if (message.to && this._rooms[sender.ip]) {
+        var _room = null;
+        if (sender.islocal) {
+            _room = this._localroom;
+        }
+        else {
+            if (this._rooms[sender.ip]) {
+                _room = this._rooms[sender.ip]
+            }
+        }
+        if (message.to && _room) {
             const recipientId = message.to; // TODO: sanitize
-            const recipient = this._rooms[sender.ip][recipientId];
+            const recipient = _room[recipientId];
             delete message.to;
             // add sender id
             message.sender = sender.id;
@@ -83,7 +92,7 @@ class SnapdropServer {
         var _room = null;
         if (peer.islocal) {
             _room = this._localroom;
-            console.log(peer.id, peer.ip, peer.name, 'join local room')
+            // console.log(peer.id, '|', peer.ip, '|', peer.name, '|', 'join local room')
         }
         else {
             // if room doesn't exist, create it
@@ -121,7 +130,7 @@ class SnapdropServer {
         var _room = null;
         if (peer.islocal) {
             _room = this._localroom;
-            console.log(peer.id, peer.ip, peer.name, 'left local room')
+            // console.log(peer.id, '|', peer.ip, '|', peer.name, '|', 'left local room')
         }
         else {
             if (!this._rooms[peer.ip] || !this._rooms[peer.ip][peer.id]) return;
